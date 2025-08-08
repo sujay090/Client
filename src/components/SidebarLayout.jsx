@@ -19,7 +19,7 @@ const menuItems = [
   { label: 'Schedule List', icon: CalendarIcon, path: '/schedule-list' },
   { label: 'Customers List', icon: UsersIcon, path: '/customers-list' },
   { label: 'Add Customer', icon: UserPlusIcon, path: '/customers' },
-  // { label: 'Posters', icon: PhotoIcon, path: '/posterList' },
+  { label: 'Posters', icon: PhotoIcon, path: '/posterList' },
   { label: 'Upload Poster', icon: CloudArrowUpIcon, path: '/upload' },
   { label: 'Profile', icon: CalendarIcon, path: '/profile' },
 ];

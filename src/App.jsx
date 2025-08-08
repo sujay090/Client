@@ -61,7 +61,7 @@ const App = () => {
               </ProtectedRoute>
             }
           />
-          {/* <Route
+          <Route
             path="/posterList"
             element={
               <ProtectedRoute>
@@ -70,7 +70,7 @@ const App = () => {
                 </SidebarLayout>
               </ProtectedRoute>
             }
-          /> */}
+          />
           <Route
             path="/customers"
             element={

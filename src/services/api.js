@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // Base API URL from environment variable or fallback
-const API_URL = "https://maxhub.center/api" 
+const API_URL = "https://marketing.gs3solution.us/api" 
 // "https://maxhub.center/api"
 // "https://marketing.gs3solution.us"
 // Create Axios instance
@@ -82,8 +82,9 @@ export const customerAPI = {
 export const scheduleAPI = {
   create: (data) => api.post("/schedules/create", data),
   getByCustomer: (customerId) => api.get(`/schedules/customer/${customerId}`),
-  getAll: () => api.get("/schedules/"), // Added method to get all schedules
-  deleteSchedule: (id) => api.delete(`/schedules/${id}`), // Added method to delete schedule
+  getAllSchedules: (url = "/schedules/") => api.get(url),
+  updateSchedule: (id, data) => api.put(`/schedules/${id}`, data),
+  deleteSchedule: (id) => api.delete(`/schedules/${id}`),
 };
 
 // ===================== 📊 Dashboard APIs =====================

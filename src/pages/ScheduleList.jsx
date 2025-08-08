@@ -29,14 +29,76 @@ const ScheduleList = () => {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [searchName, setSearchName] = useState("");
+  const [editingSchedule, setEditingSchedule] = useState(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [posterDetails, setPosterDetails] = useState({});
 
   const fetchSchedules = async () => {
     setLoading(true);
     try {
-      const res = await scheduleAPI.getAll();
-      setSchedules(res.data);
+      let url = "/schedules?includePosters=true";
+      const params = new URLSearchParams();
+
+      if (fromDate) params.append("fromDate", fromDate);
+      if (toDate) params.append("toDate", toDate);
+      if (searchName) params.append("name", searchName);
+
+      if (params.toString()) {
+        url += `&${params.toString()}`;
+      }
+
+      const response = await scheduleAPI.getAllSchedules(url);
+      
+      console.log("Full API Response:", response); // Debug log
+      console.log("Response data:", response.data); // Debug response data
+      
+      // Extract schedules data from axios response
+      const schedulesData = Array.isArray(response.data) ? response.data : [];
+      
+      console.log("Schedules data extracted:", schedulesData); // Debug extracted data
+      console.log("Poster details check:", schedulesData.map(s => ({
+        id: s._id, 
+        posterId: s.posterId, 
+        poster: s.poster,
+        customerName: s.customerId?.companyName
+      }))); // Debug poster data
+      
+      // Sort schedules - upcoming schedules first, then past schedules (latest first)
+      const sortedSchedules = schedulesData.sort((a, b) => {
+        const dateA = new Date(a.date + 'T' + (a.time || '00:00'));
+        const dateB = new Date(b.date + 'T' + (b.time || '00:00'));
+        const now = new Date();
+        
+        // If both are in future, show nearest first
+        if (dateA >= now && dateB >= now) {
+          return dateA - dateB;
+        }
+        // If both are in past, show latest first  
+        if (dateA < now && dateB < now) {
+          return dateB - dateA;
+        }
+        // Future dates come before past dates
+        return dateA >= now ? -1 : 1;
+      });
+      
+      setSchedules(sortedSchedules);
+      
+      // Store poster details for quick access
+      const posterMap = {};
+      sortedSchedules.forEach(schedule => {
+        // Check for poster in the enhanced response from backend
+        if (schedule.poster) {
+          posterMap[schedule._id] = schedule.poster;
+        }
+      });
+      setPosterDetails(posterMap);
+      
+      console.log("Final schedules with poster info:", sortedSchedules); // Debug final schedules
+      console.log("Final poster map:", posterMap); // Debug final poster mapping
+
     } catch (error) {
-      toast.error("Failed to fetch schedules");
+      console.error("Error fetching schedules:", error);
+      console.error("Error details:", error.response?.data); // Log error response details
     } finally {
       setLoading(false);
     }
@@ -46,7 +108,13 @@ const ScheduleList = () => {
     fetchSchedules();
   }, []);
 
-  const getStatus = (date) => {
+  const getStatus = (date, scheduleStatus) => {
+    // If we have actual schedule status from API, use that
+    if (scheduleStatus) {
+      return scheduleStatus;
+    }
+    
+    // Otherwise, calculate based on date
     const scheduleDate = new Date(date).toISOString().split("T")[0];
     const today = new Date().toISOString().split("T")[0];
     if (scheduleDate === today) return "Live";
@@ -56,13 +124,74 @@ const ScheduleList = () => {
   const getStatusClass = (status) => {
     switch (status) {
       case "Live":
+      case "Sent":
         return "bg-green-500/20 text-green-300 border-green-500/30";
       case "Upcoming":
+      case "Pending":
         return "bg-blue-500/20 text-blue-300 border-blue-500/30";
       case "Expired":
-        return "bg-gray-500/20 text-gray-300 border-gray-500/30";
+      case "Failed":
+        return "bg-red-500/20 text-red-300 border-red-500/30";
       default:
         return "bg-gray-500/20 text-gray-300 border-gray-500/30";
+    }
+  };
+
+  const handleEdit = (schedule) => {
+    setEditingSchedule({
+      ...schedule,
+      date: new Date(schedule.date).toISOString().split('T')[0],
+      time: schedule.time
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    try {
+      const updatedSchedule = {
+        ...editingSchedule,
+        date: new Date(editingSchedule.date + 'T' + editingSchedule.time),
+      };
+
+      await scheduleAPI.updateSchedule(editingSchedule._id, updatedSchedule);
+      setIsEditModalOpen(false);
+      setEditingSchedule(null);
+      fetchSchedules();
+      alert("Schedule updated successfully!");
+    } catch (error) {
+      console.error("Error updating schedule:", error);
+      alert("Error updating schedule");
+    }
+  };
+
+  const downloadPoster = async (posterImageUrl, posterName = 'poster') => {
+    try {
+      // If the posterImageUrl is a full URL (starts with http), use it directly
+      // Otherwise, construct the full URL
+      const fullUrl = posterImageUrl.startsWith('http') 
+        ? posterImageUrl 
+        : `${window.location.origin}${posterImageUrl}`;
+      
+      console.log('Downloading poster from:', fullUrl);
+      
+      const response = await fetch(fullUrl);
+      if (!response.ok) throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `${posterName || 'poster'}.png`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success('Poster downloaded successfully!');
+    } catch (error) {
+      console.error('Error downloading poster:', error);
+      toast.error(`Error downloading poster: ${error.message}`);
     }
   };
 
@@ -191,6 +320,9 @@ const ScheduleList = () => {
                       Customer
                     </th>
                     <th className="px-6 py-4 text-left font-semibold">
+                      Poster
+                    </th>
+                    <th className="px-6 py-4 text-left font-semibold">
                       Category
                     </th>
                     <th className="px-6 py-4 text-left font-semibold">Date</th>
@@ -208,7 +340,7 @@ const ScheduleList = () => {
                     const { dateStr, timeStr } = formatDateTimeIST(
                       schedule.date
                     );
-                    const status = getStatus(schedule.date);
+                    const status = getStatus(schedule.date, schedule.status);
                     return (
                       <tr
                         key={schedule._id}
@@ -220,6 +352,39 @@ const ScheduleList = () => {
                           <div className="font-medium">
                             {schedule.customerId?.companyName || "N/A"}
                           </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {schedule.poster ? (
+                            <div className="flex items-center space-x-2">
+                              <img
+                                src={schedule.poster.imageUrl}
+                                alt="Poster"
+                                className="w-12 h-12 rounded-lg object-cover cursor-pointer hover:scale-110 transition-transform"
+                                onClick={() => downloadPoster(schedule.poster.imageUrl, schedule.customerId?.companyName)}
+                              />
+                              <button
+                                onClick={() => downloadPoster(schedule.poster.imageUrl, schedule.customerId?.companyName)}
+                                className="text-blue-400 hover:text-blue-300 text-sm"
+                                title="Download poster"
+                              >
+                                📥
+                              </button>
+                            </div>
+                          ) : schedule.posterId ? (
+                            <div className="flex items-center space-x-2">
+                              <div className="w-12 h-12 bg-gray-600 rounded-lg flex items-center justify-center">
+                                <span className="text-gray-400 text-xs">🖼️</span>
+                              </div>
+                              <span className="text-yellow-400 text-sm">Poster ID: {schedule.posterId}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-2">
+                              <div className="w-12 h-12 bg-red-900/30 rounded-lg flex items-center justify-center border border-red-500/30">
+                                <span className="text-red-400 text-lg">❌</span>
+                              </div>
+                              <span className="text-red-400 text-sm font-medium">No poster assigned</span>
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <span className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-sm font-medium">
@@ -242,12 +407,22 @@ const ScheduleList = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <button
-                            onClick={() => handleDelete(schedule._id)}
-                            className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 hover:text-red-200 rounded-lg transition-all duration-200 font-medium"
-                          >
-                            🗑️ Delete
-                          </button>
+                          <div className="flex space-x-2 justify-end">
+                            <button
+                              onClick={() => handleEdit(schedule)}
+                              className="px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 rounded-lg transition-all duration-200 text-sm"
+                              title="Edit schedule"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              onClick={() => handleDelete(schedule._id)}
+                              className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 hover:text-red-200 rounded-lg transition-all duration-200 text-sm"
+                              title="Delete schedule"
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -260,28 +435,51 @@ const ScheduleList = () => {
             <div className="lg:hidden p-4 space-y-4">
               {filteredSchedules.map((schedule) => {
                 const { dateStr, timeStr } = formatDateTimeIST(schedule.date);
-                const status = getStatus(schedule.date);
+                const status = getStatus(schedule.date, schedule.status);
                 return (
                   <div
                     key={schedule._id}
                     className="bg-white/5 rounded-xl p-4 border border-white/10"
                   >
                     <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h3 className="font-semibold text-white text-lg">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-white text-lg mb-2">
                           {schedule.customerId?.companyName || "N/A"}
                         </h3>
                         <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs font-medium">
                           {schedule.category}
                         </span>
                       </div>
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(
-                          status
-                        )}`}
-                      >
-                        {schedule.status}
-                      </span>
+                      <div className="flex items-center space-x-3">
+                        {schedule.poster ? (
+                          <img
+                            src={schedule.poster.imageUrl}
+                            alt="Poster"
+                            className="w-16 h-16 rounded-lg object-cover cursor-pointer hover:scale-110 transition-transform"
+                            onClick={() => downloadPoster(schedule.poster.imageUrl, schedule.customerId?.companyName)}
+                          />
+                        ) : schedule.posterId ? (
+                          <div className="w-16 h-16 bg-gray-600 rounded-lg flex items-center justify-center">
+                            <span className="text-gray-400 text-xl">🖼️</span>
+                          </div>
+                        ) : (
+                          <div className="w-16 h-16 bg-red-900/30 rounded-lg flex items-center justify-center border border-red-500/30">
+                            <span className="text-red-400 text-xl">❌</span>
+                          </div>
+                        )}
+                        <div className="flex flex-col items-center space-y-1">
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(
+                              status
+                            )}`}
+                          >
+                            {status}
+                          </span>
+                          {!schedule.poster && !schedule.posterId && (
+                            <span className="text-red-400 text-xs">No poster</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3 mb-3 text-sm">
                       <div>
@@ -297,7 +495,13 @@ const ScheduleList = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="flex justify-end">
+                    <div className="flex justify-end space-x-2">
+                      <button
+                        onClick={() => handleEdit(schedule)}
+                        className="px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 rounded-lg transition-all duration-200 text-sm font-medium"
+                      >
+                        ✏️ Edit
+                      </button>
                       <button
                         onClick={() => handleDelete(schedule._id)}
                         className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 hover:text-red-200 rounded-lg transition-all duration-200 text-sm font-medium"
@@ -308,6 +512,86 @@ const ScheduleList = () => {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Edit Modal */}
+        {isEditModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 shadow-2xl p-6 w-full max-w-md mx-4">
+              <h3 className="text-xl font-bold text-white mb-4">Edit Schedule</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Customer
+                  </label>
+                  <input
+                    type="text"
+                    value={editingSchedule?.customerId?.companyName || ''}
+                    disabled
+                    className="w-full p-3 rounded-xl bg-gray-600 text-gray-300 border border-gray-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editingSchedule?.date || ''}
+                    onChange={(e) => setEditingSchedule({...editingSchedule, date: e.target.value})}
+                    className="w-full p-3 rounded-xl bg-white/10 text-white border border-white/20 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Time
+                  </label>
+                  <input
+                    type="time"
+                    value={editingSchedule?.time || ''}
+                    onChange={(e) => setEditingSchedule({...editingSchedule, time: e.target.value})}
+                    className="w-full p-3 rounded-xl bg-white/10 text-white border border-white/20 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    value={editingSchedule?.customerId?.phoneNumber || ''}
+                    onChange={(e) => setEditingSchedule({
+                      ...editingSchedule, 
+                      customerId: {...editingSchedule.customerId, phoneNumber: e.target.value}
+                    })}
+                    className="w-full p-3 rounded-xl bg-white/10 text-white border border-white/20 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/50"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  onClick={() => {
+                    setIsEditModalOpen(false);
+                    setEditingSchedule(null);
+                  }}
+                  className="px-4 py-2 bg-gray-500/20 hover:bg-gray-500/30 text-gray-300 rounded-lg transition-all duration-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 rounded-lg transition-all duration-200"
+                >
+                  Save Changes
+                </button>
+              </div>
             </div>
           </div>
         )}
